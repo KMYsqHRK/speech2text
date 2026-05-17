@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>連続音声文字起こし</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@300;400;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="title-jp">連続音声文字起こし</div>
+  <div class="title-en">Continuous Transcription — Local + Web Speech</div>
+  <div class="divider"></div>
+  <div class="badge">記憶拡張プロトタイプ</div>
+</header>
+
+<div class="error-msg" id="errorMsg"></div>
+
+<!-- モード選択 -->
+<div class="card">
+  <div class="card-header"><span class="card-label">認識モード</span></div>
+  <div class="mode-section">
+    <label class="mode-opt">
+      <input type="radio" name="mode" value="local" checked onchange="onModeChange()">
+      <div class="mode-opt-body">
+        <span class="mode-opt-label">ローカル Whisper</span>
+        <span class="mode-opt-desc">完全オフライン・API キー不要</span>
+      </div>
+    </label>
+    <label class="mode-opt">
+      <input type="radio" name="mode" value="webspeech" onchange="onModeChange()">
+      <div class="mode-opt-body">
+        <span class="mode-opt-label">Web Speech API</span>
+        <span class="mode-opt-desc">Google サーバー・Chrome のみ・高精度</span>
+      </div>
+    </label>
+  </div>
+</div>
+
+<!-- モデル（Whisper モード時のみ表示） -->
+<div class="card" id="whisperCard">
+  <div class="card-header">
+    <span class="card-label">モデル</span>
+    <span class="card-label" id="modelStatus">未ロード</span>
+  </div>
+  <div class="model-section">
+    <div class="model-row">
+      <select class="model-select" id="modelSelect">
+        <option value="Xenova/whisper-tiny">Whisper Tiny（39MB・最速）</option>
+        <option value="Xenova/whisper-base" selected>Whisper Base（74MB・バランス）</option>
+        <option value="Xenova/whisper-small">Whisper Small（244MB・高精度）</option>
+      </select>
+      <button class="load-btn" id="loadBtn" onclick="loadModel()">ロード</button>
+    </div>
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-label" id="progressLabel">ダウンロード中...</div>
+      <div class="progress-bar-bg"><div class="progress-bar" id="progressBar"></div></div>
+    </div>
+    <div class="model-note">※ 初回のみダウンロード。以降はブラウザキャッシュから読み込み</div>
+  </div>
+</div>
+
+<!-- パラメータ（Whisper モード時のみ表示） -->
+<div class="card" id="paramsCard">
+  <div class="card-header"><span class="card-label">パラメータ</span></div>
+  <div class="params-section">
+    <div class="param-group">
+      <div class="param-label">チャンク長</div>
+      <input type="range" id="chunkSlider" min="3" max="30" step="1" value="5" oninput="updateParams()">
+      <div class="param-value" id="chunkVal">5 秒</div>
+    </div>
+    <div class="param-group">
+      <div class="param-label">音量閾値（スキップ）</div>
+      <div class="vol-wrap">
+        <div class="vol-meter-bg"><div class="vol-meter-bar" id="volBar"></div></div>
+        <div class="thresh-marker" id="threshMarker" style="left:10%"></div>
+      </div>
+      <input type="range" id="threshSlider" min="0" max="100" step="1" value="10" oninput="updateParams()">
+      <div class="param-value">閾値: <span id="threshVal">10</span> / 100 　現在: <span id="volVal">-</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ステータス -->
+<div class="card">
+  <div class="card-header">
+    <div class="status-bar">
+      <div class="dot" id="statusDot"></div>
+      <span class="status-text" id="statusText">待機中</span>
+    </div>
+    <div class="stats">
+      <div class="stat">処理済: <span id="statProcessed">0</span></div>
+      <div class="stat">スキップ: <span id="statSkipped">0</span></div>
+      <div class="stat">キュー: <span id="statQueue">0</span></div>
+    </div>
+  </div>
+  <div class="timeline" id="timeline"></div>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>録音中</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#f39c12"></div>処理待ち</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div>完了</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#e0d8cc"></div>スキップ</div>
+  </div>
+</div>
+
+<!-- 操作 -->
+<div class="main-controls">
+  <button class="main-btn" id="startBtn" onclick="toggleStream()" disabled>▶ 開始</button>
+  <button class="sub-btn" id="copyBtn" onclick="copyText()" disabled>コピー</button>
+  <button class="sub-btn" id="clearBtn" onclick="clearText()" disabled>クリア</button>
+</div>
+
+<!-- 結果 -->
+<div class="card">
+  <div class="card-header">
+    <span class="card-label">文字起こし結果</span>
+    <span class="card-label" id="charCount">0 文字</span>
+  </div>
+  <div class="transcript-area" id="transcriptArea">
+    <div class="placeholder" id="placeholder">開始ボタンを押すと連続処理します</div>
+    <div id="transcriptText"></div>
+  </div>
+  <div class="interim-area" id="interimArea">
+    <div class="interim-label">認識中...</div>
+    <div class="interim-text" id="interimText"></div>
+  </div>
+  <div class="queue-bar" id="queueBar">
+    <div class="spin"></div>
+    <span id="queueLabel">Whisper処理中...</span>
+  </div>
+</div>
+
+<footer id="footer">連続音声文字起こし — 記憶拡張プロトタイプ</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
